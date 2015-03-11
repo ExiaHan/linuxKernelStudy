@@ -124,6 +124,7 @@
 
 + 当前运行栈情况如图：
 ![At Start](./pic/stack_status/pid0_0.png)
+
 这里的ret和old ebp 是my_start_kernel的Prolog操作，ret是my_start_kernel的返回地址，old ebp是调用my_start_kernel函数前的栈基址。
 
 ** 这里里需要注意的是，如果内核不是通过call指令调用的my_start_kernel的话，可能内存中没有ret这条，因为即将启动的0号进程不会退出，所以就算没有ret也没有影响**
