@@ -52,3 +52,7 @@
 ![process 1 to 2](./pic/2.png)
 ![process 2 to 3](./pic/3.png)
 ![process 3 to 0](./pic/4.png)
+
+##代码分析
+看完实验演示，下面将结合代码对运行栈的变化进行分析：
+我们可以看到mykernel路径下有三个C源文件，分别是mypcb.h，mymain.c，myinterrupt.c，从教学视频中我们可以了解到
