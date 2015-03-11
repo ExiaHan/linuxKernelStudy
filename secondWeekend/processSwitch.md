@@ -123,6 +123,7 @@
 ** 注意，下面如果无特殊说明，将使用伪汇编指令，即把内联汇编中的%1，%2等对应标号做替换，以方便理解**
 
 + 当前运行栈情况如图：
+
 ![At Start](./pic/stack_status/pid0_0.png)
 
 这里的ret和old ebp 是my_start_kernel的Prolog操作，ret是my_start_kernel的返回地址，old ebp是调用my_start_kernel函数前的栈基址。
