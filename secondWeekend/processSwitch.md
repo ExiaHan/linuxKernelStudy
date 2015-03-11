@@ -8,5 +8,6 @@
 
 ##实验准备
 按照作业页面的说明去Github上mykernel项目按照其说明下载“linux 3.9.4内核源码”，然后clone项目到本地，解压内核，然后对内核打patch
-	```$patch p1 < [your patt]/mykernel/mykernel/mykernel_for_linux3.9.4sc.patch```
+
+	$patch p1 < [your patt]/mykernel/mykernel/mykernel_for_linux3.9.4sc.patch
 
