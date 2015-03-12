@@ -133,5 +133,12 @@
 
 	movl task[pid].thread.sp, %%esp
 
-本条指令把0号进程当前的栈顶地址放入esp，，此条指令 执行后，我们可以认为栈发生了半切换，之所以没有说栈完全切换，因为这里并没有同时更改ebp的值因为0号进程此时并未运行，所以栈空，如图：
+本条指令把0号进程当前的栈顶地址放入esp，，此条指令执行后，我们可以认为栈发生了半切换，之所以没有说栈完全切换，因为这里并没有同时更改ebp的值。同时，因为此时0号进程并未运行，所以栈空，esp指向stack[KERNEL_STACK_SIZE - 1]，如图：
+
 ![1 inc](./pic/stack_status/pid0_1.png)
+
+这里需要注意的是，前面初始化threa.sp时是
+
+	task[i].thread.sp = (unsigned long)&task[i].stack[KERNEL_STACK_SIZE-1];
+
+所以esp指向的是stack[KERNEL_STACK_SIZE - 1]，并不是有些人认为的esp应该指向stack数组后面紧接的第一个内存地址。
