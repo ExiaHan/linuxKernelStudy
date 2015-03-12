@@ -267,6 +267,6 @@ movl %esp, %ebp
 
 	"ret\n\t" /* restore eip */
 从当前栈task[1].stack中弹出刚刚送入的1号进程的入口地址，启动1号进程，进入1号进程后，同样有如下动作，当1号进程的my_process()方法内的局部变量i满足if语句条件后，将检查是否需要调度，这里我们同样假设调度标志已经为真，且经过sand_priority()方法后下一个将被运行的进程为0号进程，则进入my_schedule()开始调度。
-此时运行栈情况如图：
+当执行玩my_schedule()的Prolog后，运行栈情况如图：
 
 ![pid 1 stack when  schedule](./pic/stack_status/pid1_2.png)
