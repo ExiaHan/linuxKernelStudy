@@ -54,8 +54,8 @@
 ![process 3 to 0](./pic/4.png)
 
 ##代码分析
-** 下面我们假设一共有0, 1, 两个进程，在此基础上对进程调度中运行栈的变化进行说明**
-** **
+**下面我们假设一共有0, 1, 两个进程，在此基础上对进程调度中运行栈的变化进行说明**
+
 *****
 
 
@@ -64,20 +64,24 @@
 - mypcb.h
 - mymain.c
 - myinterrupt.c
-** 其中mypcb.h里定义了**
+
+**其中mypcb.h里定义了**
 - PCB结构
 - 线程结构
-** myinterrupt.c里定义了**
+
+**myinterrupt.c里定义了**
 - 我们自己的时钟中断相应函数my_timer_handler(void)
 - 调度函数 my_schedule(void)
-** mymain.c作为入口，提供了如下功能**
+
+**mymain.c作为入口，提供了如下功能**
 - 入口函数my_start_kernel(void)
 - 初始化0号和后继进程
 - 示例进程函数
 
-** 下面从mymain.c开始分析**
+**下面从mymain.c开始分析**
+
 前面已经说过线程切换中最为重要的是运行栈的切换和EIP的正确跳转
-在** my_start_kernel**函数中
+在**my_start_kernel**函数中
 ```
 ......
 	int pid = 0;
@@ -100,8 +104,8 @@
     }
 ......
 ```
-上面一段代码完成了对0号进程的初始化，同时用类似方法构造了MAX_TASK_NUM - 1个PCB以备使用。这里比较重要的就是PCB结构中的threap.sp，前面说过一个线程对应一个栈，所以在这里我们把thread.sp指向对应PCB内的char stack[KERNEL_STACK_SIZE - 1]的地方，即用这个字符数组作为运行栈，为何指向stack[KERNEL_STACK_SIZE - 1]，是因为** 栈是由高地址向低地址增长**，这个概念一定要深深的印到脑海里。
-上述代码做完准备工作后，下面的代码将完成对** 第0号进程的启动**
+上面一段代码完成了对0号进程的初始化，同时用类似方法构造了MAX_TASK_NUM - 1个PCB以备使用。这里比较重要的就是PCB结构中的threap.sp，前面说过一个线程对应一个栈，所以在这里我们把thread.sp指向对应PCB内的char stack[KERNEL_STACK_SIZE - 1]的地方，即用这个字符数组作为运行栈，为何指向stack[KERNEL_STACK_SIZE - 1]，是因为**栈是由高地址向低地址增长**，这个概念一定要深深的印到脑海里。
+上述代码做完准备工作后，下面的代码将完成对**第0号进程的启动**
 ```
 	pid = 0;
     my_current_task = &task[pid];
@@ -126,7 +130,7 @@
 
 这里的ret和old ebp 是my_start_kernel的Prolog操作，ret是my_start_kernel的返回地址，old ebp是调用my_start条微博之前不是删除了吗？_kernel函数前的栈基址。之所以在old ebp之后留有空隙是因为esp到ebp之间还要有局部变量，也可能会有内存对齐空出的空间，所以当前栈顶距[esp]离当前栈基址[ebp]会有一定距离。
 
-** 这里里需要注意的是，如果内核不是通过call指令调用的my_start_kernel的话，可能内存中没有ret这条，因为即将启动的0号进程不会退出，所以就算没有ret也没有影响**
+**这里里需要注意的是，如果内核不是通过call指令调用的my_start_kernel的话，可能内存中没有ret这条，因为即将启动的0号进程不会退出，所以就算没有ret也没有影响**
 
 
 	"movl %1,%%esp\n\t" 	/* set task[pid].thread.sp to esp */
@@ -164,12 +168,12 @@ asm volatile(
      : "c" (task[pid].thread.ip),"d" (task[pid].thread.sp)	/* input c or d mean %ecx/%edx*/
 );
 ```
-** 大概思路就是要能保证当前的栈环境能完整恢复，这里比较绕的是我们需要先把当前esp保存到eax里，以为内下一步会切换栈顶，破坏esp内的内容，所以要提前保存，在切换到新栈顶后，我们要先把eax，即old esp入栈，然后再把old ebp入栈，如果反过来入栈，则出栈时会因为先修改了esp导致栈顶先切换而导致无法弹出真正的old ebp。**经测试修改过的代码可以正确运行。
+**大概思路就是要能保证当前的栈环境能完整恢复，这里比较绕的是我们需要先把当前esp保存到eax里，以为内下一步会切换栈顶，破坏esp内的内容，所以要提前保存，在切换到新栈顶后，我们要先把eax，即old esp入栈，然后再把old ebp入栈，如果反过来入栈，则出栈时会因为先修改了esp导致栈顶先切换而导致无法弹出真正的old ebp。**经测试修改过的代码可以正确运行。
 
 *****
 
 
-** 下面继续接着mykernel提供的代码分析**
+**下面继续接着mykernel提供的代码分析**
 
 	"pushl %1\n\t" 	        /* push ebp */
 
@@ -228,7 +232,7 @@ asm volatile(
 这两句执行后的结果，因为这里形成的ebp硬链表对于理解栈的切换十分重要。
 + 当进入my_process后，Prolog在栈中放入指向kernel[即my_start_kernel]栈存放old ebp的当前ebp值，然后修改ebp指向old ebp pushed by my_process
 + 进入my_schedule后，prolog在栈中放入指向my old ebp pushed by my_process的当前ebp值，然后修改ebp指向 old ebp pushed by my_schedule
-** 如果0号和1号进程是可以返回的，那么ebp将顺着这个硬链表回溯到my_start_kernel运行时的状态。**
+**如果0号和1号进程是可以返回的，那么ebp将顺着这个硬链表回溯到my_start_kernel运行时的状态。**
 
 下面继续追踪紧接着的汇编代码运行后的栈变化：
 ```
@@ -276,7 +280,7 @@ asm volatile(
 
 
 ####接下来开始分析从1号进程切换回0号进程的的流程
-** 由于0号进程之前运行过，所以其状态是runnable，则调度过程中将进入my_schedule()方法的if分支执行**
+**由于0号进程之前运行过，所以其状态是runnable，则调度过程中将进入my_schedule()方法的if分支执行**
 ```
 ......
 
@@ -330,7 +334,7 @@ asm volatile(
 
 ![pid 0 stack ](./pic/stack_status/pid10_0.png)
 
-这里合理的值就是通过使用“Magic Num” ** $if**，来让task[1].thread.ip指向后面标号** 1:**处的指令；同样，在上次从0号进程切换到1号进程时，也有这个操作，所以此时不论task[0].thread.ip还是task[1].thread.ip都是指向标号处的指令，即
+这里合理的值就是通过使用“Magic Num” ** $if**，来让task[1].thread.ip指向后面标号**1:**处的指令；同样，在上次从0号进程切换到1号进程时，也有这个操作，所以此时不论task[0].thread.ip还是task[1].thread.ip都是指向标号处的指令，即
 ```
 	"1:\t" /* next process start here */
     "popl %%ebp\n\t"
