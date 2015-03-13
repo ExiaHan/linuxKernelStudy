@@ -124,7 +124,7 @@
 
 ![At Start](./pic/stack_status/pid0_0.png)
 
-这里的ret和old ebp 是my_start_kernel的Prolog操作，ret是my_start_kernel的返回地址，old ebp是调用my_start_kernel函数前的栈基址。之所以在old ebp之后留有空隙是因为esp到ebp之间还要有局部变量，也可能会有内存对齐空出的空间，所以当前栈顶距[esp]离当前栈基址[ebp]会有一定距离。
+这里的ret和old ebp 是my_start_kernel的Prolog操作，ret是my_start_kernel的返回地址，old ebp是调用my_start条微博之前不是删除了吗？_kernel函数前的栈基址。之所以在old ebp之后留有空隙是因为esp到ebp之间还要有局部变量，也可能会有内存对齐空出的空间，所以当前栈顶距[esp]离当前栈基址[ebp]会有一定距离。
 
 ** 这里里需要注意的是，如果内核不是通过call指令调用的my_start_kernel的话，可能内存中没有ret这条，因为即将启动的0号进程不会退出，所以就算没有ret也没有影响**
 
@@ -222,8 +222,8 @@ asm volatile(
 
 这里之所以有省略号同样是因为函数内可能有局部变量或者内存对齐等原因，比较重要的是我画出了从0号进程开始运行my_process到调用my_schedule()时两个函数的Prolog,即
 ```
-pushl %ebp
-movl %esp, %ebp
+    pushl %ebp
+    movl %esp, %ebp
 ```
 这两句执行后的结果，因为这里形成的ebp硬链表对于理解栈的切换十分重要。
 + 当进入my_process后，Prolog在栈中放入指向kernel[即my_start_kernel]栈存放old ebp的当前ebp值，然后修改ebp指向old ebp pushed by my_process
@@ -232,16 +232,16 @@ movl %esp, %ebp
 
 下面继续追踪紧接着的汇编代码运行后的栈变化：
 ```
-"pushl %%ebp\n\t" /* save ebp */
-"movl %%esp,%0\n\t" /* save esp */
+	"pushl %%ebp\n\t" /* save ebp */
+	"movl %%esp,%0\n\t" /* save esp */
 ````
 首先在0号进程栈中保存当前的ebp，然后将此时的esp值存入task[0].thread.sp，即保存0号进程的运行栈现场。此时栈中情况如图：
 
 ![pid 0 stack when save env](./pic/stack_status/pid0_4.png)
 
 ```
-"movl %2,%%esp\n\t" /* restore esp */
-"movl %2,%%ebp\n\t" /* restore ebp */
+	"movl %2,%%esp\n\t" /* restore esp */
+	"movl %2,%%ebp\n\t" /* restore ebp */
 ```
 + 开始进行栈切换，即从task[0].stack，切换到task[1].stack，和切换到0号进程相同，修改esp指向task[1].stack[KERNEL_STACK_SIZE - 1]
 + 同样，由于此时1号进程并没有运行，所以ebp作为栈基址，指向地址和esp相同
@@ -269,6 +269,65 @@ movl %esp, %ebp
 从当前栈task[1].stack中弹出刚刚送入的1号进程的入口地址，启动1号进程，进入1号进程后，同样有如下动作，当1号进程的my_process()方法内的局部变量i满足if语句条件后，将检查是否需要调度，这里我们同样假设调度标志已经为真，且经过sand_priority()方法后下一个将被运行的进程为0号进程，则进入my_schedule()开始调度。
 当执行玩my_schedule()的Prolog后，运行栈情况如图：
 
-![pid 1 stack when  schedule](./pic/stack_status/pid1_2.png)
+![pid 1 stack when schedule](./pic/stack_status/pid1_2.png)
 
-接下来开始分析从1号进程切换回0号进程的的流程
+
+*****
+
+
+####接下来开始分析从1号进程切换回0号进程的的流程
+** 由于0号进程之前运行过，所以其状态是runnable，则调度过程中将进入my_schedule()方法的if分支执行**
+```
+......
+
+    if(next->state == 0)/* -1 unrunnable, 0 runnable, >0 stopped */
+    {//save current scene
+     /* switch to next process */
+     asm volatile(	
+         "pushl %%ebp\n\t" /* save ebp */
+         "movl %%esp,%0\n\t" /* save esp */
+         "movl %2,%%esp\n\t" /* restore esp */
+         "movl $1f,%1\n\t" /* save eip */	
+         "pushl %3\n\t"
+         "ret\n\t" /* restore eip */
+         "1:\t" /* next process start here */
+         "popl %%ebp\n\t"
+         : "=m" (prev->thread.sp),"=m" (prev->thread.ip)
+         : "m" (next->thread.sp),"m" (next->thread.ip)
+     );
+     my_current_task = next;//switch to the next task
+     printk(KERN_NOTICE "switch from %d process to %d process\n>>>process %d running!!!<<<\n\n",prev->pid,next->pid,next->pid);
+  }
+
+......
+```
+
+前两句汇编语句
+```
+	"pushl %%ebp\n\t" /* save ebp */
+    "movl %%esp,%0\n\t" /* save esp */
+```
+将把当前进程，即1号进程的栈环境保存，具体做法是把当前ebp入栈，然后把栈顶指针esp存入1号进程的task[1].thread.sp，执行后的栈情况如图：
+
+![pid 1 stack after save env](./pic/stack_status/pid1_3.png)
+
+接下来将进行栈切换，这里是从1号进程的进程栈切换到2号进程的进程栈
+```
+	"movl %2,%%esp\n\t" /* restore esp */
+```
+此条汇编语句执行后，栈顶所指的栈已经改变，即由1号进程切换到0号进程，如图：
+
+![pid 1 stack after save env](./pic/stack_status/pid1_4.png)
+
+注意红色的esp，这里esp刚好会指向我们在上一次调度时在0号进程栈里放入的old ebp的内存地址，原因很简单，因为上次我们在破坏esp的值切换栈之前保存的esp就是指向这里。
+
+接着将保存向1号进程的task[1].thread.ip里存入合理的值，并且把上次进程切换时保存的0号进程的程序指令指针,task[0].thread.ip入栈，为下一步的切换做最后准备
+```
+	"movl $1f,%1\n\t" /* save eip */
+    "pushl %3\n\t"
+```
+执行后的栈情况如图：
+
+![pid 0 stack ](./pic/stack_status/pid10_0.png)
+
+这里合理的值就是通过使用“Magic Num” ** $if**，来让task[1].thread.ip指向后面
