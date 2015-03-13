@@ -270,3 +270,5 @@ movl %esp, %ebp
 当执行玩my_schedule()的Prolog后，运行栈情况如图：
 
 ![pid 1 stack when  schedule](./pic/stack_status/pid1_2.png)
+
+接下来开始分析从1号进程切换回0号进程的的流程
