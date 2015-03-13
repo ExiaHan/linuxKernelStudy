@@ -265,7 +265,7 @@ asm volatile(
 
 	"pushl %3\n\t"
 
-把1号进程的进程入口地址** [这里以因为是1号进程第一次运行，所以就是my_process()的入口地址]**入栈。此时栈中情况如图：
+把1号进程的进程入口地址**[这里以因为是1号进程第一次运行，所以就是my_process()的入口地址]**入栈。此时栈中情况如图：
 
 ![pid 1 stack when start proc](./pic/stack_status/pid1_1.png)
 
@@ -334,7 +334,7 @@ asm volatile(
 
 ![pid 0 stack ](./pic/stack_status/pid10_0.png)
 
-这里合理的值就是通过使用“Magic Num” ** $if**，来让task[1].thread.ip指向后面标号**1:**处的指令；同样，在上次从0号进程切换到1号进程时，也有这个操作，所以此时不论task[0].thread.ip还是task[1].thread.ip都是指向标号处的指令，即
+这里合理的值就是通过使用“Magic Num” **$if**，来让task[1].thread.ip指向后面标号**1:**处的指令；同样，在上次从0号进程切换到1号进程时，也有这个操作，所以此时不论task[0].thread.ip还是task[1].thread.ip都是指向标号处的指令，即
 ```
 	"1:\t" /* next process start here */
     "popl %%ebp\n\t"
