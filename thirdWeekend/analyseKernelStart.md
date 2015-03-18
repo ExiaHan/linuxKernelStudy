@@ -28,4 +28,4 @@
 
 执行完上述命令后，我们会看到qemu停留在start_kernel调用前，截图如下：
 
-![b start_kernel](./pic/001.png)
+![b start_kernel](./pic/001.jpg)
