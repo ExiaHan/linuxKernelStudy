@@ -115,7 +115,7 @@ early_boot_irqs_disabled = true;**
 + setup_nr_cpu_ids() 根据注释，大部分架构都已经在早期设置了nr_cpu_ids，此函数通常是个冗余函数
 + setup_per_cpu_areas() 大概目的是为每个cpu分配内存
 + smp_prepare_boot_cpu() 准备指定架构的钩子
-+ page_alloc_init() 建立系统内存页区链表
++ build_all_zonelists(NULL, NULL) 建立系统内存页区链表
 + page_alloc_init() .......
 + parse_early_param(void) 解析早期参数，推测为解析一些内核参数
 + pidhash_init() 初始化进程标识符哈希表，根据注释，其建立的哈希表的大小根据本机实际内存大小而调整。
@@ -128,10 +128,10 @@ early_boot_irqs_disabled = true;**
 ......
 ......
 
-+ init_IRQ() 初始化中断请求
++ init_IRQ() 初始化中断请求（关于IRQ：[Wikipedia](http://goo.gl/tHQxlw)）
 + tick_init initialize the tick control，初始化“时钟滴答”控制[这里想了半天没想好怎么翻译，要和下面的时间中断区别开。。。相关参考：http://blog.csdn.net/lee_xin_gml/article/details/7866206]
 + init_timer() 初始化定时器
-+ sched_clock_postinit() 
++ sched_clock_postinit()
 + perf_event_init()
 + profile_init()
 + call_function_init()
@@ -164,4 +164,73 @@ kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参�
 
 到这里，我们可以看到qemu里已经有启动信息输出，仔细阅读可以看到上面各模块启动的信息。
 
-![irq dis start modules]()
+![irq dis start modules](./pic/003.jpg)
+
+**现在继续走下去：**
+
++ page_cgroup_init() 页面初始化
++ debug_objects_mem_init() 位于lib/debugobjects.c中，根据注释，其作用在于当 kmem_crashs之后建立一个专用缓冲池，同时有SLAB_DEBUG_OBJECTS被置位。
++ kmemleak_init() mm/kmemleak.c，内存泄漏检测初始化
++ setup_per_cpu_pageset() mm/page_alloc.c，设置每个cpu的页面集合
++ numa_policy_init() 把fs寄存器作为kernel的ds，这里可以这样理解，i386平坦模式下通过ds：address可以访问到全部的4G内存，当然也包括kernel拥有的内存范围，但是fs是一个专门指向kernel所在内存区块的首地址的寄存器。
++ calibrate_delay() 通过观察启动截图，可以看到此函数应该只做了一个延迟功能,如图：
+
+![delay](./pic/004.jpg)
+
++ sched_clock_init 
++ pidmap_init() kernel/pid.c，pid映射表初始化
++ anon_vma_init()
++ acpi_early_init() ~~根据经验，个人揣测和电源管理有关~~
+
+**接下来如果是x86架构，则还会检测efi引导是否启用，如果启用，还要额外对efi模式进行处理，如果是x86_64，则还需额外调用函数**
+```C
+	#ifdef CONFIG_X86
+	if (efi_enabled(EFI_RUNTIME_SERVICES))
+		efi_enter_virtual_mode();
+	#endif
+    #ifdef CONFIG_X86_ESPFIX64
+	/* Should be run before the first non-init thread is created */
+	init_espfix_bsp();
+	#endif
+```
+
++ thread_info_cache_init() 线程信息缓存初始化
++ cred_init() initialise the credentials stuff
++ fork_init(totalram_pages) fork机制初始化，这个比较重要，因为再后来启动其他用户进程时都会用到fork机制
++ proc_caches_init() initializes the SLAB caches used by the kernel
++ buffer_init() 缓冲区初始化
++ key_init() Initialise the key management state
++ security_init() 安全相关模块初始化
++ dbg_late_init() 与debug相关
++ vfs_caches_init(totalram_pages) 
++ signals_init() 信号量初始化
++ page_writeback_init() 页面写回初始化
++ proc_root_init() 
++ cgroup_init() Register cgroup filesystem and /proc file, and initialize  any subsystems that didn't request early init，注册cgroup文件系统和/proc文件，众所周知，linux会把当前运行的说有进程都在/proc下做一个文件映射
++ cpuset_init() cpuset_init - initialize cpusets at system boot Description: Initialize top_cpuset and the cpuset internal file system，初始化cpusets，和cpuset内部文件系统
++ taskstats_init_early() 任务状态初始化
++ delayacct_init()
++ check_bugs() 
++ sfi_init_late()
++ ftrace_init
+
+单步运行[但不进入]上述代码，此时qemu模拟器输出如图：
+
+![befor rest_init](./pic/005.jpg)
+
+*****
+
+####接下来，就是重要的rest_init，在这里，我们的0号进程和1号进程将被创建和运行
+```
+	(gdb) s
+```
+使用上命令进入rest_init，单步执行，如图：
+
+![enter rest_init](./pic/006.jpg)
+
+在rest_init内，定义了一个局部变量pid，将用来存放未来通过kernel_thread()创建的一个内核线程标识符
+
+函数内第一个执行的是函数
+```C
+	rcu_scheduler_starting()
+```
