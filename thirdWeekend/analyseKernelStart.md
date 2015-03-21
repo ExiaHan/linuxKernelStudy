@@ -250,6 +250,10 @@ kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参�
         (unsigned long)arg, NULL, NULL);
 	}
 ```
+gdb调试结果如图：
+
+![in kernel_thread](./pic/007.jpg)
+
 我们继续进入do_fork，看看到底发生了什么：
 ```
 (gdb) s
@@ -257,6 +261,5 @@ kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参�
 是了，我们会发现do_fork做了两件最重要的事情，调用了copy_process复制了当前进程的信息，根据传进来的flag调整了一些进程参数，然后调用了wake_up_new_task函数，唤醒我们刚刚创建的新进程，即0号进程，然后会通知ptrace[这里因为我们设置了clone_untraced，所以这里不会通知ptrace，调试时确实是会跳过相关的if语句]
 上述过程截图如下：
 
-![in kernel_thread](./pic/007.jpg)
 ![in kernel_thread](./pic/008.jpg)
 ![in kernel_thread](./pic/009.jpg)
