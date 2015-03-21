@@ -29,3 +29,139 @@
 执行完上述命令后，我们会看到qemu停留在start_kernel调用前，截图如下：
 
 ![b start_kernel](./pic/001.jpg)
+
+当前可以看到kernel在start_kernel前停下，终端输入
+```
+	$(gdb)s
+```
+进入函数，开始分析
+
+**注，由于本人也是linux新手，这里只能通过查阅相关文档和内核源码说明来尽量对启动过程进行详细描述，疏漏之处想必会非常多，希望阅读者发现错误可以告知，共同进步**
+
+*****
+####这里对start_kernel函数中一些重要的函数进行说明，循序渐进执行直到rest_init
+
+**首先看第一个函数调用lockdep_init()函数**
+
+可以看到带源码前有段注释，指出这里的模块要尽可能早的加载，目的是为了初始化一张lockdep hash，这是什么呢？我们可以在kernel/locking/lockdep.c看到相关说明，从lockdep.c的注释部分我们可以了解，lockdep.c里实现的功能大概是对运行时的一些[lock]锁操作的正确性进行验证，何为“锁”操作呢，下面也给出了说明：
++ rwsems 内核读写信号量
++ rwlocks 读写锁
++ mutex 同步互斥量
++ spinlocks 自旋锁
+
+**lockdep_init()**的作用就是初始化一张 “lock dependency hash”，从而使lockdep.c里定义的模块可以在运行时检测到如下的lock bugs：
++ lock inversion scenerios 反演锁场景
++ circular lock dependencies 环形锁依赖
++ hardirq/softirq safe/unsafe lock bugs 软/硬中断请求和安全/非安全的“锁”中的bug
+
+为了能够处理内核中的这些同步相关的机制可能引起的一些问题场景，所以内核代码注释中说明该函数要尽早调用，以建立锁依赖的哈希表。
+
+lockdep_init()会首先检测是否已经初始化的lock dependencies hash，如果已经创建则返回，如果没有创建，会执行两个for循环调用**执行同样的内容----调用**INIT_LIST_HEAD()，分别对lockdep classes和lock dependency chain两张链表进行初始化，从名称可以看出，两张表里分别存放了“锁依赖的类型”和“锁依赖链”
+
+*****
+
+**是第二个函数set_task_stack_end_magic(&init_task)**
+本函数位于kernel/fork.c文件中，其功能很简单，是手动的把整个linux系统的第一个进程，即**0号进程**的stack的最后一个可用内存地址指向的内存中存入一个magic num，目的是为了检测stackoverflow，即防止栈溢出。
++ 函数首先调用end_of_task()函数获取最后一个可用的栈内存地址，根据其注释，如果栈向下生长，则其最后一个可用内存地址刚好在task_thread_info结构体所在内存之上。
++ 获取到地址后，想该内存块写入0x57AC6E9D，魔数定义位于include/uapi/linux/magic.h
+**[至于为什么是0x57AC6E9D,暂时没有找到原因，如果有人知道希望可以告知。]**
+
+在gdb中s到set_task_stack_end_magic函数，然后用p打印传入的参数，可以看到传入的参数是个task_struct，此结构定义位于include/linux/sched.h，这里调用set_task_stack_end_magic时传入的参数是由位于include/linux/init_task.h中的INIT_TASK宏进行初始化，在此宏中我们可以看到0号进程的说有信息，同时通过查看gdb中打印的参数信息，我们可以确定这里确实是在对0号进程进行处理，如图：
+
+![0 process stack magic end](./pic/002.jpg)
+
+白色划线处成员变量即为pid，这里可以看到pid为0,也即印证了课堂中所说的内容。
+
+*****
+
+**运行，接下来是smp_setup_processer_id()**
+此函数被定义为一个**__weak 函数**,这种定义的作用如下：
+*若两个或两个以上全局符号（函数或变量名）名字一样，而其中之一声明为weak symbol（弱符号），则这些全局符号不会引发重定义错误。链接器会忽略弱符号，去使用普通的全局符号来解析所有对这些符号的引用，但当普通的全局符号不可用时，链接器会使用弱符号。当有函数或变量名可能被用户覆盖时，该函数或变量名可以声明为一个弱符号。当weak和alias属性连用时，还可以声明弱别名。*[来自http://my.oschina.net/senmole/blog/50887]
+通过在实验楼提供的在线linux内核源码浏览上搜索发现x86架构没有找到此函数的定义，Google后发现此函数的作用是定义**当前CPU的逻辑号，如果当前系统中只有一个CPU，则函数什么也不做**[来自http://blog.csdn.net/wzw12315/article/details/6304891]
+
+*****
+
+**debug_objects_early_init()**
+此函数用于内核的对象调试，其定义位于lib/debugobjects.c，根据其定义处的注释描述，其会初始化一个hash buckets并且把static object pool里的objects链入一个poll list。此函数调用完成后object tracker将可以正常工作。[这里对hash buckets，static object pool，poll list无法想到合适的翻译名，时间允许的话将在后期查阅并补上]
+
+*****
+
+**boot_init_stack_canary(void)**
+从其名字可以看出，为init进程的stack加上“栈警卫”**[栈警卫作用在于检测防止发生stack overflow，至于什么是“栈溢出”，其危害到底如何，请去网上参阅alpha one的文章，http://insecure.org/stf/smashstack.html]**
+
+此函数定义位于arch/x86/include/asm/stackprotector.h，是一个内联函数
+
+*****
+
+**cgroup_init_early**
+定义位于kernel/cgroup.c，初始化所有要求在系统启动早期就被启动的子系统。
+
+*****
+
+**local_irq_disable();
+early_boot_irqs_disabled = true;**
+
+辗转调用到对应架构的arch_local_irq_disable()方法，关中断。
+
+*****
+
+**在中断关闭的情况下开始进行一系列重要模块的初始化**
+
++ boot_cpu_init 激活逻辑号排在第一位的CPU
++ page_address_init() 辗转初始化外部变量page_address_pool,用来访问无法被直接映射的高内存区块
++ setup_arch(&command_line)函数定义在arch/x86/kernel/setup.c中，非常重要，初始化当前机器架构对应的环境[一些文章中说这里command_line是由bootloader传入，带有重要架构信息，但是这里用gdb打印信息发现是0x0]
++ mm_init_cpumask(&init_mm) .....没有找到相关说明...
++ setup_command_line(command_line) 存储command_line到static_command_line，存储boot_command_line到saved_command_line
++ setup_nr_cpu_ids() 根据注释，大部分架构都已经在早期设置了nr_cpu_ids，此函数通常是个冗余函数
++ setup_per_cpu_areas() 大概目的是为每个cpu分配内存
++ smp_prepare_boot_cpu() 准备指定架构的钩子
++ page_alloc_init() 建立系统内存页区链表
++ page_alloc_init() .......
++ parse_early_param(void) 解析早期参数，推测为解析一些内核参数
++ pidhash_init() 初始化进程标识符哈希表，根据注释，其建立的哈希表的大小根据本机实际内存大小而调整。
++ vfs_caches_init_early(void) 早期虚拟文件系统缓存初始化
++ sort_main_extable(void) 分类内核内建的异常表
++ trap_init() 设置cpu异常处理函数，即硬件中断向量初始化
++ mm_init 设置内核内存分配管理器
++ sched_init() 初始化调度器，为中断引发的调度设置优先级，根据注释，全部的拓扑结构会在smp_init()中完成初始化。
++ preempt_disable() 如上所述，早期的调度器是很“脆弱”的[功能不完整]，所以这里关闭抢占机制，直到0号进程真正开始运行后，再打开
+......
+......
+
++ init_IRQ() 初始化中断请求
++ tick_init initialize the tick control，初始化“时钟滴答”控制[这里想了半天没想好怎么翻译，要和下面的时间中断区别开。。。相关参考：http://blog.csdn.net/lee_xin_gml/article/details/7866206]
++ init_timer() 初始化定时器
++ sched_clock_postinit() 
++ perf_event_init()
++ profile_init()
++ call_function_init()
+
+*****
+
+**early_boot_irqs_disabled = false;
+local_irq_enable();**
+完成相关模块初始化后重新打开中断。
+
+*****
+
+**kmem_cache_init_late()**
+kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参考资料：http://www.cnblogs.com/openix/p/3352652.html]**
+
+*****
+
+**console_init()**
+初始化控制台，执行完后tty0将可用
+
+*****
+
+**lock dependences打印和自测**
++ lockdep_info()
++ lockdep_selftest()
+根据注释，中断打开后需要运行lockdep_selftest，因为需要自测有没有lock相关的问题，如反演锁bug等。
+
+
+-----
+
+到这里，我们可以看到qemu里已经有启动信息输出，仔细阅读可以看到上面各模块启动的信息。
+
+![irq dis start modules]()
