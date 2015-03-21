@@ -1,4 +1,4 @@
-#Linux内核学习第三周--从start_kernel到rest_init
+#Linux内核学习第三周--0和1,从start_kernel到rest_init
 
 **韩洋 + 原创作品转载请注明出处 + 《Linux内核分析》MOOC课程http://mooc.study.163.com/course/USTC-1000029000**
 
