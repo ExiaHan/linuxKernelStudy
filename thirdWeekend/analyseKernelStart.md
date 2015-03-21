@@ -220,7 +220,7 @@ kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参�
 
 *****
 
-####接下来，就是重要的rest_init，在这里，我们的0号进程和1号进程将被创建和运行
+####接下来，就是重要的rest_init，在这里，我们的1号进程将被创建和运行
 ```
 	(gdb) s
 ```
@@ -234,3 +234,29 @@ kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参�
 ```C
 	rcu_scheduler_starting()
 ```
+首先，什么是RCU，查阅资料后发现，RCU是内核里的一种同步机制。[http://lwn.net/Articles/262464/]
+此函数位于kernel/rcu/tree.c中，根据其注释，在调度器初始化完成后此函数才被调用 ，这里看确实也是事实，因为从前面的分析可以看到，调度器初始化函数早于rest_init被调用。此函数的功能如下：被调用前，idle task可能会拥有RCU read-side critical section，即处于读临界区中，根据注释，此时idle task在引导系统启动，当此函数被执行后，idle task被禁止拥有读临界区，同时此函数的调用也讲引发lockdep checking，从前面的分析可以看到，此时lockdep相关模块早已启动，所以可以进行死锁检测。
+根据源码可以看到，此函数会检测当前在用的cpu个数，如果不是1会有警告，同时当有多个上下文切换时，也会警告。函数末尾把rcu_scheduler_active设为1。
+
+继续下去，将会执行
+`kernel_thread(kernel_init, NULL, CLONE_FS)`
+根据代码上方的注释,在这里我们将要“孵化”出init进程，因为它是第一个用户态进程，所以它将活得第一个进程标识符，即成为1号进程，但是这个初始化任务最终是要创建一个内核线程，如果我们在它创建内核线程之前进行调度，将会出问题。
+进入kernel_thread，可以看到实际上函数对当前的进程做了一次fork操作，同时指定了对fs寄存器，打开的文件，而且声明了子进程不被trace。
+代码如下：
+```C
+	pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
+	{
+		return do_fork(flags|CLONE_VM|CLONE_UNTRACED, (unsigned long)fn,
+        (unsigned long)arg, NULL, NULL);
+	}
+```
+我们继续进入do_fork，看看到底发生了什么：
+```
+(gdb) s
+```
+是了，我们会发现do_fork做了两件最重要的事情，调用了copy_process复制了当前进程的信息，根据传进来的flag调整了一些进程参数，然后调用了wake_up_new_task函数，唤醒我们刚刚创建的新进程，即0号进程，然后会通知ptrace[这里因为我们设置了clone_untraced，所以这里不会通知ptrace，调试时确实是会跳过相关的if语句]
+上述过程截图如下：
+
+![in kernel_thread](./pic/007.jpg)
+![in kernel_thread](./pic/008.jpg)
+![in kernel_thread](./pic/009.jpg)
