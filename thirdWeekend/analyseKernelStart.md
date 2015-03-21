@@ -66,7 +66,7 @@ lockdep_init()会首先检测是否已经初始化的lock dependencies hash，�
 + 获取到地址后，想该内存块写入0x57AC6E9D，魔数定义位于include/uapi/linux/magic.h
 **[至于为什么是0x57AC6E9D,暂时没有找到原因，如果有人知道希望可以告知。]**
 
-在gdb中s到set_task_stack_end_magic函数，然后用p打印传入的参数，可以看到传入的参数是个task_struct，此结构定义位于include/linux/sched.h，这里调用set_task_stack_end_magic时传入的参数是由位于include/linux/init_task.h中的INIT_TASK宏进行初始化，在此宏中我们可以看到0号进程的说有信息，同时通过查看gdb中打印的参数信息，我们可以确定这里确实是在对0号进程进行处理，如图：
+在gdb中s到set_task_stack_end_magic函数，然后用p打印传入的参数，可以看到传入的参数是个task_struct，此结构定义位于include/linux/sched.h，这里调用set_task_stack_end_magic时传入的参数是由位于include/linux/init_task.h中的INIT_TASK宏进行初始化，实际上它就是我们的0号进程，即当前进程，在此宏中我们可以看到0号进程的所有信息，同时通过查看gdb中打印的参数信息，我们可以确定这里确实是在对0号进程进行处理，如图：
 
 ![0 process stack magic end](./pic/002.jpg)
 
@@ -240,8 +240,19 @@ kmem_cache_init_late的目的就在于完善slab分配器的缓存机制**[参�
 
 继续下去，将会执行
 `kernel_thread(kernel_init, NULL, CLONE_FS)`
-根据代码上方的注释,在这里我们将要“孵化”出init进程，因为它是第一个用户态进程，所以它将活得第一个进程标识符，即成为1号进程，但是这个初始化任务最终是要创建一个内核线程，如果我们在它创建内核线程之前进行调度，将会出问题。
-进入kernel_thread，可以看到实际上函数对当前的进程做了一次fork操作，同时指定了对fs寄存器，打开的文件，而且声明了子进程不被trace。
+根据代码上方的注释,在这里我们将要“孵化”出init进程，因为它是第一个用户态进程，所以它将活得第一个进程标识符，即成为1号进程，但是在init被创建之前还是要先挂起，等待2号进程kthreadd创建完成，如果在kthreadd被创建前调度init，会出现问题。
+首先我们要注意传入的第一个参数kernel_init,实际上它是一个函数指针，在这个函数中最为重要的一句代码：
+```C
+	if (ramdisk_execute_command) {
+		ret = run_init_process(ramdisk_execute_command);
+		if (!ret)
+			return 0;
+		pr_err("Failed to execute %s (error %d)\n",
+		       ramdisk_execute_command, ret);
+	}
+```
+即课堂中说的run_init_process，运行我们的1号进程。
+进入kernel_thread，可以看到实际上函数对当前的进程做了一次fork操作，实际上就是产生我们的1号进程，把上面的kernel_init指针也传了进来，同时指定了对fs寄存器，打开的文件，而且声明了子进程不被trace。
 代码如下：
 ```C
 	pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
@@ -263,3 +274,31 @@ gdb调试结果如图：
 
 ![in kernel_thread](./pic/008.jpg)
 ![in kernel_thread](./pic/009.jpg)
+
+随后调用numa_default_policy重置当前进程的内存策略[什么是内存策略：https://www.kernel.org/doc/Documentation/vm/numa_memory_policy.txt]
+
+再接下来将创建2号进程kthreadd，其本质上是一个内核线程，**kthreadd的用途是管理和调度其他内核线程**，首先我们先查看当前qemu的host机器上kthreadd的pid是多少，结果如图:
+
+![host kthreadd](./pic/010.jpg)
+
+可以看到确实为2号进程，继续调试执行，可以看到返回的pid也确实为2，如图：
+
+![kthreadd pid](./pic/011.jpg)
+
+kthreadd创建完成后调用rcu_read_lock进入rcu读方临界区，然后调用find_task_by_pid_ns(pid, &init_pid_ns)获取kthreadd的信息，然后再调用rcu_read_unlock退出rcu读方临界区,这里加上rcu lock的原因是因为find_task_by_pid_ns(pid, &init_pid_ns)的源码注释上说明了调用此函数时必须进行调用rcu_read_lock。如果获取信息成功，则会调用complete[位于kernel/sched/completion.c]函数通知kernel_init。
+
+**接下来是init_idle_bootup_task(current)**
+进入函数,查看传入的参数，可以看到current是0号进程的task_struct，函数内把0号进程的调度类型改为idle_sched_class，如下图：
+
+![init_idle_bootup_task](./pic/012.jpg)
+
++ 然后会调用schedule_preempt_disabled()来禁用抢占式调度。
++ 再接下去会调用cpu_startup_entry()，根据注释，是在无抢占式调度的情况下调用cpu_idle进程，即0号进程。
+
+在调试器中进入该函数，看到此函数会做如下动作：
+
++ 调用arch_cpu_idle_prepare()，为对应架构的idle进程运行做准备[本身是一个weak函数]
++ 调用cpu_idle_loop(),此函数是一个无限循环函数，即为我们的0号进程，即idle进程，当系统没有其他任务时，cpu就执行此进程。
+
+###总结
+通过上面分析，可以看到，在进入start_kernel的时，init_task就已经被已经被初始化了，而且由后面的某函数的current参数可以知道，当前进程就是0号进程，0号进程执行start_kernel函数，完成内核相关组建的初始化，并且在最后阶段fork出1号进程init和2号进程kthreadd，完成这些工作后，我们的0号进程就彻底退休，进入一个无线循环的函数cpu_idle_loop，成为真正的idle进程。
